@@ -1,0 +1,6 @@
+scapy
+netifaces
+nmap
+colorama
+rich
+PyQt5
