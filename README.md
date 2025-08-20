@@ -1,15 +1,15 @@
-KAPA - Kali Automated Pentest Assistant
+# KAPA - Kali Automated Pentest Assistant
 
-KAPA is a proof-of-concept automation framework for internal network penetration tests. It orchestrates common security tools to perform automated discovery, service enumeration, and vulnerability assessment within a LAN environment. By leveraging simple machine learning for target prioritization, KAPA helps security professionals quickly identify the most promising targets for further exploitation.
+**KAPA** is a proof-of-concept automation framework for internal network penetration testing. It orchestrates common security tools to perform automated discovery, service enumeration, and vulnerability assessment within a LAN environment. Using lightweight machine learning for target prioritization, KAPA helps security professionals quickly identify the most promising targets for further exploitation.
 
-Key Features:
+## Key Features
 
-Automated Network Discovery: Scans the local subnet to identify live hosts.
+* **Automated Network Discovery:** Scan the local subnet to identify live hosts quickly.
+* **Intelligent Service Fingerprinting:** Detect open ports and running services with integrated Nmap scanning.
+* **ML-Powered Target Prioritization:** Rank targets based on potential value and common attack vectors.
+* **Modular Attack Framework:** Easily extendable with new exploit modules.
+* **Consolidated Reporting:** Generate structured JSON reports for detailed analysis.
 
-Intelligent Service Fingerprinting: Detects open ports and running services using integrated Nmap scanning.
+KAPA is ideal for internal pentesters and security enthusiasts looking to streamline their workflow and focus on high-value targets efficiently.
 
-ML-Powered Target Prioritization: Ranks targets based on potential value and common attack vectors.
 
-Modular Attack Framework: Designed for easy expansion with new exploit modules.
-
-Consolidated Reporting: Generates structured JSON reports for analysis
