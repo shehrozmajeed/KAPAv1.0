@@ -1,0 +1,14 @@
+{
+  "secure_windows": {
+    "name": "Secure Windows",
+    "description": "Default security settings",
+    "null_session_allowed": false
+  },
+  "vulnerable_windows": {
+    "name": "Vulnerable Windows", 
+    "description": "Security disabled for testing",
+    "null_session_allowed": true,
+    "firewall_disabled": true,
+    "guest_access_enabled": true
+  }
+}
