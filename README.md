@@ -10,6 +10,6 @@
 * **Modular Attack Framework:** Easily extendable with new exploit modules.
 * **Consolidated Reporting:** Generate structured JSON reports for detailed analysis.
 
-KAPA is ideal for internal pentesters and security enthusiasts looking to streamline their workflow and focus on high-value targets efficiently.
+KAPA is ideal for internal pentesters and security enthusiasts looking to streamline their workflow and focus on high-value targets efficiently. 
 
 
